@@ -1,9 +1,10 @@
-import pandas as pd
-import requests
+from data_preprocessing import prepare_data
+
 
 
 def main()-> None:
-    pass
+    df = prepare_data()
+    print(df)
 
 
 if __name__ == "__main__":
