@@ -7,9 +7,16 @@ The data consists of data from 6 different weather buoys that were deployed from
 
 ## Goal
 
-The tentative goal for this project is to train a regression model that predicts one or more of the columns based on the other columns.  
+The goal for this exercise is to answer the following questions:
+    - Are Variables with the same units correlated
+    - Can we predict the temperature forecast based on the other parameters in the dataset
+    - How certain is the model in the predictions?
 
 ## Installation
 
 1. Install requirements specified in ```requirements.txt```  
-2. run ``` python3 main.py ```
+2. run ``` python3 main.py ``` to download the data and train the models
+
+## Visualizations
+
+Visualizations can be seen in the visualize Notebook.
