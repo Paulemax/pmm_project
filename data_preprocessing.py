@@ -54,7 +54,7 @@ def _handle_nan_values(df: pd.DataFrame) -> pd.DataFrame:
     2. Remove rows with nan values
     """
     # Drop columns with to many nan values 
-    df_c = df.drop(columns=["Hmax", "DewPoint", "MeanWaveDirection"]) 
+    df_c = df.drop(columns=["Hmax", "DewPoint", "MeanWaveDirection", "QC_Flag"]) 
     df_c = df_c.dropna()
     return df_c
 

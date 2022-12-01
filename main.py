@@ -1,10 +1,10 @@
 from data_preprocessing import prepare_data
-
+from models import train_models
 
 
 def main()-> None:
-    df = prepare_data()
-    print(df)
+    prepare_data()
+    train_models()
 
 
 if __name__ == "__main__":

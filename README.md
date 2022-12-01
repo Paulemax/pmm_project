@@ -8,9 +8,10 @@ The data consists of data from 6 different weather buoys that were deployed from
 ## Goal
 
 The goal for this exercise is to answer the following questions:
+    - How does the data change with time, e.g. is there are trend in temperature?
     - Are Variables with the same units correlated
     - Can we predict the temperature forecast based on the other parameters in the dataset
-    - How certain is the model in the predictions?
+        - (opt) How certain is the model in the predictions?
 
 ## Installation
 
