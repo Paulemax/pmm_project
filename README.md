@@ -21,3 +21,10 @@ The goal for this exercise is to answer the following questions:
 ## Visualizations
 
 Visualizations can be seen in the visualize Notebook.
+
+## Next Steps
+
+my tentative next goals are:
+
+- Train a quantile Regression Model to get an uncertainty quantification.
+- See if we can do actual forecasting with lstm's.
