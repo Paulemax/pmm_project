@@ -294,8 +294,8 @@ def test_model(model, trainer, dl_test):
     trainer.test(model, dataloaders=[dl_test])
 
 
-def save_model(model, name):
-    p = Path("./saves/")
+def save_model(model, name, version):
+    p = Path(f".{version}/saves/")
     p.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), p / name)
     
@@ -352,10 +352,13 @@ def main() -> None:
     """" Trains the models """
     data = dp.prepare_data()
     # We dont need the test set here
-    df_train, _, df_val = get_df_splits(data)
+    df_train, _, df_val = get_df_splits(data, seed=SEED)
     dl_train = get_dataloader(df_train, shuffle=True)
     dl_val = get_dataloader(df_val, shuffle=False)
 
+    # TODO automatic Versioning
+    # Manual Versioning
+    version = "version_0"
 
     mse_simple_model = create_simple_model()
     mse_skip_model = create_skip_model()
@@ -365,9 +368,9 @@ def main() -> None:
     train_model(mse_simple_model, create_trainer(), dl_train, dl_val)
     train_model(mse_simple_model, create_trainer(), dl_train, dl_val)
 
-    save_model(mse_simple_model, "mse_simple_model")
-    save_model(mse_skip_model, "mse_skip_model")
-    save_model(quantile_model, "quantile_model")
+    save_model(mse_simple_model, "mse_simple_model", version)
+    save_model(mse_skip_model, "mse_skip_model", version)
+    save_model(quantile_model, "quantile_model", version)
 
 
 if __name__ == "__main__":
