@@ -28,6 +28,7 @@ The visualization goals for this exercise is to plot the model prediction over t
 
 - Mean Squared Error and R^2 Score as Performance Metrics
   - R^2 Score describes how good the classifier is scores near to 1 are better. 0 is the baseline
+- Tensorboard logs
 - temperature / time plot
 - temperature / time plot with uncertainties
 
@@ -37,6 +38,7 @@ The visualizations for the third exercise can be found in the ```model_visualiza
 
 My tentative goals for user interactivity are:
 
+- Fix the model, predictions and intervals suck hard.
 - Let the user specify the quantiles.
 - Let the user specify the prediction parameters of the visualization task.
 - Let the user specify the prediction target, eg. temperature / wave height, etc...

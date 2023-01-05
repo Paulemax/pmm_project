@@ -126,7 +126,7 @@ class MyModel(pl.LightningModule):
         # TODO I use the transformation function as a way to indicate quantile regression, not nice. 
         if self.transformation_fn is not None:
             # Get the Point Prediction. In our case it is the middle 0.5 quantile. 
-            pred = pred[::, 3]
+            pred = pred[::, 2]
         
         mse.update(pred, batch[-1])
         r2_score.update(pred, batch[-1])
@@ -161,11 +161,11 @@ class QuantileLoss(torch.nn.Module):
         - If we just use the 0.5 Quantile it is equivalent to the MAE.
         - The middle Quantile is the Point Prediction. 
     """
-    def __init__(self, quantiles):
+    def __init__(self, quantiles) -> None:
         super().__init__()
         self.quantiles = quantiles
         
-    def forward(self, preds, target):
+    def forward(self, preds, target) -> torch.Tensor:
         assert not target.requires_grad
         assert preds.size(0) == target.size(0)
         losses = []
@@ -214,7 +214,12 @@ class SkipBlock(torch.nn.Module):
         return torch.nn.functional.relu(out)
 
 
-# Architectures i want to test, with a corresponding classification head
+##########################################################################
+# Architectures i want to test, with a corresponding classification head #
+##########################################################################
+
+
+# Resnet like architecture as an overkill solution
 skip_architecture = torch.nn.Sequential(
     torch.nn.Conv1d(1, 10, kernel_size=5),
     torch.nn.BatchNorm1d(10),
@@ -239,6 +244,7 @@ skip_architecture = torch.nn.Sequential(
 )
 
 
+# Simple convolution architecture as a baseline and for quantile regression
 simple_architecture = torch.nn.Sequential(
     torch.nn.Conv1d(1, 10, kernel_size=10), # 100 -> 95
     torch.nn.BatchNorm1d(10),
@@ -327,7 +333,7 @@ def create_skip_model():
     )
 
 
-def create_quantile_model(quantiles) -> pl.LightningModule:
+def create_quantile_model(quantiles=QUANTILES) -> pl.LightningModule:
     tf = partial(quantile_transformation, num_quantiles=len(quantiles), output_channels=1)
 
     return MyModel(
