@@ -1,22 +1,24 @@
 import pandas as pd 
 import numpy as np
 import torch
-from typing import Tuple, Any
+from typing import List, Tuple, Any
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 import torchmetrics
 import data_preprocessing as dp
 from pathlib import Path
+from functools import partial
 
 
-
-
-
+# Constants
 BATCH_SIZE: int = 128
 WORKERS: int = 8
 LR: float = 1e-3
-EPOCHS: int = 30
+EPOCHS: int = 50
+QUANTILES: List[float] = [0.02, 0.25, 0.5, 0.75, 0.98]
+SEED: int = 42
+
 
 class BuoyDataset(torch.utils.data.Dataset):
     """ 
@@ -70,8 +72,9 @@ class MyModel(pl.LightningModule):
         transformation_fn: callable = None
     ) -> None:
         super().__init__()
+        # Embedding Layers are used to learn a representation for tabular data
         self.station_emb = torch.nn.Embedding(9, 9)
-        self.year_emb = torch.nn.Embedding(22, 5) 
+        self.year_emb = torch.nn.Embedding(23, 5) # apparently this is live data so year increases. 
         self.doy_emb = torch.nn.Embedding(366, 12) # leap years ;) 
         self.month_emb = torch.nn.Embedding(12, 6)
         self.hour_emb = torch.nn.Embedding(24, 12)
@@ -100,8 +103,10 @@ class MyModel(pl.LightningModule):
         # let network do its job
         conv_out = self.architecture(conv_in)
         out = self.classification_head(conv_out)
+
         if self.transformation_fn is not None:
             out = self.transformation_fn(out)
+
         return out
 
     def _step(self, batch) -> torch.Tensor:
@@ -117,6 +122,12 @@ class MyModel(pl.LightningModule):
     
     def _eval_step(self, batch, mse, r2_score):
         pred, loss = self._step(batch)
+        
+        # TODO I use the transformation function as a way to indicate quantile regression, not nice. 
+        if self.transformation_fn is not None:
+            # Get the Point Prediction. In our case it is the middle 0.5 quantile. 
+            pred = pred[::, 3]
+        
         mse.update(pred, batch[-1])
         r2_score.update(pred, batch[-1])
         return loss
@@ -142,6 +153,46 @@ class MyModel(pl.LightningModule):
         return optim
 
 
+class QuantileLoss(torch.nn.Module):
+    """
+    Quantile Loss Function adapted from: 
+    https://medium.com/the-artificial-impostor/quantile-regression-part-2-6fdbc26b2629
+    Notes: 
+        - If we just use the 0.5 Quantile it is equivalent to the MAE.
+        - The middle Quantile is the Point Prediction. 
+    """
+    def __init__(self, quantiles):
+        super().__init__()
+        self.quantiles = quantiles
+        
+    def forward(self, preds, target):
+        assert not target.requires_grad
+        assert preds.size(0) == target.size(0)
+        losses = []
+        for i, q in enumerate(self.quantiles):
+            errors = target - preds[:, i]
+            losses.append(
+                torch.max(
+                   (q-1) * errors, 
+                   q * errors
+            ).unsqueeze(1))
+        loss = torch.mean(
+            torch.sum(torch.cat(losses, dim=1), dim=1))
+        loss.view
+        return loss
+
+
+def quantile_transformation(t: torch.Tensor, num_quantiles: int, output_channels: int) -> torch.Tensor:
+    """
+    Transforms the output into a shape the loss function can work with.
+    Use it by partially applying it with functools.partial
+
+    In a simple regression scenario this is not needed. But we need to reshape our output, in a scenario 
+    where multiple parameters are predicted. 
+    """
+    return t.view(-1, num_quantiles, output_channels)
+
+
 class SkipBlock(torch.nn.Module):
     """Skip Connection Block"""
 
@@ -164,7 +215,7 @@ class SkipBlock(torch.nn.Module):
 
 
 # Architectures i want to test, with a corresponding classification head
-architecture_2 = torch.nn.Sequential(
+skip_architecture = torch.nn.Sequential(
     torch.nn.Conv1d(1, 10, kernel_size=5),
     torch.nn.BatchNorm1d(10),
     torch.nn.ReLU(),
@@ -186,31 +237,49 @@ architecture_2 = torch.nn.Sequential(
     SkipBlock(30, 5),
     torch.nn.Dropout()
 )
-class_head_2 = torch.nn.Sequential(
-    torch.nn.AdaptiveAvgPool1d(1),
-    torch.nn.Flatten(),
-    torch.nn.Linear(30, 1),
-)
-architecture = torch.nn.Sequential(
-    torch.nn.Conv1d(1, 10, kernel_size=5), # 100 -> 95
+
+
+simple_architecture = torch.nn.Sequential(
+    torch.nn.Conv1d(1, 10, kernel_size=10), # 100 -> 95
     torch.nn.BatchNorm1d(10),
     torch.nn.ReLU(),
-    torch.nn.Conv1d(10, 20, kernel_size=5),
+    torch.nn.Conv1d(10, 20, kernel_size=10),
     torch.nn.BatchNorm1d(20),
     torch.nn.ReLU(),
-    torch.nn.Conv1d(20, 30, kernel_size=5),
+    torch.nn.Conv1d(20, 30, kernel_size=10),
     torch.nn.BatchNorm1d(30),
     torch.nn.ReLU(),
-    torch.nn.Conv1d(30, 40, kernel_size=5),
+    torch.nn.Conv1d(30, 40, kernel_size=10),
     torch.nn.BatchNorm1d(40),
     torch.nn.ReLU(),
     torch.nn.Dropout()
 )
+
+
+########################
+# Classification Heads #
+########################
+
+
+skip_head = torch.nn.Sequential(
+    torch.nn.AdaptiveAvgPool1d(1),
+    torch.nn.Flatten(),
+    torch.nn.Linear(30, 1),
+)
+
+
 classification_head = torch.nn.Sequential(
     torch.nn.AdaptiveAvgPool1d(1),
     torch.nn.Flatten(),
     torch.nn.Linear(40, 1),
 )
+
+
+quantile_class_head = torch.nn.Sequential(
+        torch.nn.AdaptiveAvgPool1d(1),
+        torch.nn.Flatten(),
+        torch.nn.Linear(40, len(QUANTILES)),
+    )
 
 
 def train_model(model, trainer, dl_train, dl_val=None):
@@ -231,45 +300,74 @@ def save_model(model, name):
     torch.save(model.state_dict(), p / name)
     
 
-def create_model1():
+#########################################
+# Helper Functions to create the Models #
+#########################################
+
+
+def create_simple_model():
     loss = torch.nn.MSELoss()
     return MyModel(
         loss=loss, 
         lr=LR, 
-        architecture=architecture, 
+        architecture=simple_architecture, 
         classification_head=classification_head,
         transformation_fn=None
     )
 
 
-def create_model2():
+def create_skip_model():
     loss = torch.nn.MSELoss()
     return MyModel(
         loss=loss, 
         lr=LR, 
-        architecture=architecture_2, 
-        classification_head=class_head_2,
+        architecture=skip_architecture, 
+        classification_head=skip_head,
         transformation_fn=None
     )
 
-def main():
+
+def create_quantile_model(quantiles) -> pl.LightningModule:
+    tf = partial(quantile_transformation, num_quantiles=len(quantiles), output_channels=1)
+
+    return MyModel(
+        loss=QuantileLoss(quantiles=quantiles), 
+        lr=LR, 
+        architecture=simple_architecture, 
+        classification_head=quantile_class_head,
+        transformation_fn=tf
+    )
+
+
+def create_trainer() -> pl.Trainer:
+    """Create a pytorch lightning trainer"""
+    if torch.cuda.is_available():
+        trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=EPOCHS, log_every_n_steps=5, check_val_every_n_epoch=5)
+    else: 
+        trainer = pl.Trainer(max_epochs=EPOCHS)
+    return trainer
+
+
+def main() -> None:
+    """" Trains the models """
     data = dp.prepare_data()
-    df_train, df_test, df_val = get_df_splits(data)
+    # We dont need the test set here
+    df_train, _, df_val = get_df_splits(data)
     dl_train = get_dataloader(df_train, shuffle=True)
-    dl_test = get_dataloader(df_test, shuffle=False)
     dl_val = get_dataloader(df_val, shuffle=False)
 
-    model1 = create_model1()
-    model2 = create_model2
-    # trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=EPOCHS, log_every_n_steps=5, check_val_every_n_epoch=5)
-    trainer = pl.Trainer(max_epochs=EPOCHS)
-    train_model(model1, trainer, dl_train, dl_val)
 
-    # trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=EPOCHS, log_every_n_steps=5, check_val_every_n_epoch=5)
-    trainer = pl.Trainer(max_epochs=EPOCHS)
-    train_model(model2, trainer)
-    save_model(model1, "model1")
-    save_model(model2, "model2")
+    mse_simple_model = create_simple_model()
+    mse_skip_model = create_skip_model()
+    quantile_model = create_quantile_model(QUANTILES)
+
+    train_model(mse_simple_model, create_trainer(), dl_train, dl_val)
+    train_model(mse_simple_model, create_trainer(), dl_train, dl_val)
+    train_model(mse_simple_model, create_trainer(), dl_train, dl_val)
+
+    save_model(mse_simple_model, "mse_simple_model")
+    save_model(mse_skip_model, "mse_skip_model")
+    save_model(quantile_model, "quantile_model")
 
 
 if __name__ == "__main__":
